@@ -1,11 +1,13 @@
 package com.fefu.fitnesstracker
 import android.annotation.*
 import android.os.Bundle
+import android.util.*
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.text.*
 import androidx.compose.material3.*
 import androidx.compose.material.icons.*
@@ -14,7 +16,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.*
 import androidx.compose.ui.text.input.*
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -22,6 +24,7 @@ import androidx.compose.ui.unit.*
 import androidx.navigation.*
 import androidx.navigation.compose.*
 import com.fefu.fitnesstracker.ui.theme.FitnessTrackerTheme
+import java.net.*
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,6 +37,44 @@ class MainActivity : ComponentActivity() {
                     composable("main") { MainScreen(navController) }
                     composable("second") { RegistrationScreen(navController) }
                     composable("third") { LoginScreen(navController) }
+                    composable("fourd") { ActivityListScreen(navController) }
+                    composable(
+                        route = "activity_detail/{distance}/{unit}/{duration}/{type}/{timeAgo}/{userTag}/{startTime}/{endTime}/{comment}",
+                        arguments = listOf(
+                            navArgument("distance") { type = NavType.StringType },
+                            navArgument("unit") { type = NavType.StringType },
+                            navArgument("duration") { type = NavType.StringType },
+                            navArgument("type") { type = NavType.StringType },
+                            navArgument("timeAgo") { type = NavType.StringType },
+                            navArgument("userTag") { type = NavType.StringType },
+                            navArgument("startTime") { type = NavType.StringType },
+                            navArgument("endTime") { type = NavType.StringType },
+                            navArgument("comment") { type = NavType.StringType }
+                        )
+                    ) { backStackEntry ->
+                        val distance = URLDecoder.decode(backStackEntry.arguments?.getString("distance") ?: "N/A", "UTF-8")
+                        val unit = URLDecoder.decode(backStackEntry.arguments?.getString("unit") ?: "N/A", "UTF-8")
+                        val duration = URLDecoder.decode(backStackEntry.arguments?.getString("duration") ?: "N/A", "UTF-8")
+                        val type = URLDecoder.decode(backStackEntry.arguments?.getString("type") ?: "Неизвестно", "UTF-8")
+                        val timeAgo = URLDecoder.decode(backStackEntry.arguments?.getString("timeAgo") ?: "N/A", "UTF-8")
+                        val userTag = URLDecoder.decode(backStackEntry.arguments?.getString("userTag") ?: "N/A", "UTF-8")
+                        val startTime = URLDecoder.decode(backStackEntry.arguments?.getString("startTime") ?: "N/A", "UTF-8")
+                        val endTime = URLDecoder.decode(backStackEntry.arguments?.getString("endTime") ?: "N/A", "UTF-8")
+                        val comment = URLDecoder.decode(backStackEntry.arguments?.getString("comment") ?: "", "UTF-8")
+
+                        ActivityDetailScreen(
+                            navController = navController,
+                            distance = distance,
+                            unit = unit,
+                            duration = duration,
+                            type = type,
+                            timeAgo = timeAgo,
+                            userTag = userTag,
+                            startTime = startTime,
+                            endTime = endTime,
+                            comment = comment
+                        )
+                    }
                 }
             }
         }
@@ -235,7 +276,8 @@ fun RegistrationScreen(navController: NavController) {
 
         // Кнопка "Продолжить"
         Button(
-            onClick = { /* Обработка регистрации */ },
+            // ИЗМЕНИТЬ, ВХОД ДОЛЖЕН АУТЕНТИФИЦИРОВАТЬСЯ
+            onClick = { navController.navigate("fourd") },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE)),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -314,7 +356,7 @@ fun LoginScreen(navController: NavController) {
 
             // Кнопка "Продолжить"
             Button(
-                onClick = { /* Обработчик входа */ },
+                onClick = { navController.navigate("fourd") },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE)), // Фиолетово-синий цвет
                 modifier = Modifier
                     .fillMaxWidth()
@@ -322,6 +364,319 @@ fun LoginScreen(navController: NavController) {
             ) {
                 Text("Продолжить", fontSize = 18.sp, color = Color.White)
             }
+        }
+    }
+}
+
+@Composable
+fun ActivityListScreen(navController: NavController) {
+    var selectedTopTab by remember { mutableIntStateOf(0) } // Верхние вкладки
+    var selectedBottomTab by remember { mutableIntStateOf(0) } // Нижние вкладки
+    val topTabs = listOf("Моя", "Пользователей")
+    val bottomTabs = listOf("Активность", "Профиль")
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                bottomTabs.forEachIndexed { index, title ->
+                    NavigationBarItem(
+                        selected = selectedBottomTab == index,
+                        onClick = { selectedBottomTab = index },
+                        icon = {
+                            Icon(
+                                imageVector = if (index == 0) Icons.Default.List else Icons.Default.Person,
+                                contentDescription = title
+                            )
+                        },
+                        label = { Text(title) }
+                    )
+                }
+            }
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { /* Действие для кнопки "Start" */ },
+                modifier = Modifier.padding(16.dp),
+                containerColor = Color(0xFF6200EE), // Фиолетовый цвет
+                contentColor = Color.White // Белый цвет значка
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow, // Значок "Start"
+                    contentDescription = "Начать активность"
+                )
+            }
+        },
+        floatingActionButtonPosition = FabPosition.End // Позиция в правом нижнем углу
+    ) { paddingValues ->
+        Column(modifier = Modifier.padding(paddingValues)) {
+            // Верхние вкладки
+            TabRow(selectedTabIndex = selectedTopTab) {
+                topTabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTopTab == index,
+                        onClick = { selectedTopTab = index },
+                        text = { Text(title) }
+                    )
+                }
+            }
+
+            // Контент в зависимости от нижней вкладки
+            when (selectedBottomTab) {
+                0 -> { // Вкладка "Активность"
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(
+                            if (selectedTopTab == 0) getMockActivitiesMy()
+                            else getMockActivitiesUsers()
+                        ) { item ->
+                            when (item) {
+                                is ActivityItem.Section -> SectionHeader(item.date)
+                                is ActivityItem.Activity -> ActivityCard(item, navController)
+                            }
+                        }
+                    }
+                }
+                1 -> { // Вкладка "Профиль"
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Text(
+                            text = "Пока пусто",
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun NavGraph(navController: NavHostController) {
+    NavHost(navController = navController, startDestination = "main") {
+        composable("main") { MainScreen(navController) }
+        composable("second") { RegistrationScreen(navController) }
+        composable("third") { LoginScreen(navController) }
+        composable("fourd") { ActivityListScreen(navController) }
+        composable("activity_list") { ActivityListScreen(navController) }
+        composable(
+            route = "activity_detail/{distance}/{unit}/{duration}/{type}/{timeAgo}/{userTag}/{startTime}/{endTime}/{comment}",
+            arguments = listOf(
+                navArgument("distance") { type = NavType.StringType },
+                navArgument("unit") { type = NavType.StringType },
+                navArgument("duration") { type = NavType.StringType },
+                navArgument("type") { type = NavType.StringType },
+                navArgument("timeAgo") { type = NavType.StringType },
+                navArgument("userTag") { type = NavType.StringType },
+                navArgument("startTime") { type = NavType.StringType },
+                navArgument("endTime") { type = NavType.StringType },
+                navArgument("comment") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val distance = URLDecoder.decode(backStackEntry.arguments?.getString("distance") ?: "N/A", "UTF-8")
+            val unit = URLDecoder.decode(backStackEntry.arguments?.getString("unit") ?: "N/A", "UTF-8")
+            val duration = URLDecoder.decode(backStackEntry.arguments?.getString("duration") ?: "N/A", "UTF-8")
+            val type = URLDecoder.decode(backStackEntry.arguments?.getString("type") ?: "Неизвестно", "UTF-8")
+            val timeAgo = URLDecoder.decode(backStackEntry.arguments?.getString("timeAgo") ?: "N/A", "UTF-8")
+            val userTag = URLDecoder.decode(backStackEntry.arguments?.getString("userTag") ?: "N/A", "UTF-8")
+            val startTime = URLDecoder.decode(backStackEntry.arguments?.getString("startTime") ?: "N/A", "UTF-8")
+            val endTime = URLDecoder.decode(backStackEntry.arguments?.getString("endTime") ?: "N/A", "UTF-8")
+            val comment = URLDecoder.decode(backStackEntry.arguments?.getString("comment") ?: "", "UTF-8")
+
+            ActivityDetailScreen(
+                navController = navController,
+                distance = distance,
+                unit = unit,
+                duration = duration,
+                type = type,
+                timeAgo = timeAgo,
+                userTag = userTag,
+                startTime = startTime,
+                endTime = endTime,
+                comment = comment
+            )
+        }
+    }
+}
+
+fun navigateToActivityDetail(navController: NavController, activity: ActivityItem.Activity) {
+    try {
+        val encodedDistance = URLEncoder.encode(activity.distance, "UTF-8")
+        val encodedUnit = URLEncoder.encode(activity.unit, "UTF-8")
+        val encodedDuration = URLEncoder.encode(activity.duration, "UTF-8")
+        val encodedType = URLEncoder.encode(activity.type, "UTF-8")
+        val encodedTimeAgo = URLEncoder.encode(activity.timeAgo, "UTF-8")
+        val encodedUserTag = URLEncoder.encode(activity.userTag, "UTF-8")
+        val encodedStartTime = URLEncoder.encode(activity.startTime, "UTF-8")
+        val encodedEndTime = URLEncoder.encode(activity.endTime, "UTF-8")
+        val encodedComment = URLEncoder.encode(activity.comment, "UTF-8")
+
+        val route = "activity_detail/$encodedDistance/$encodedUnit/$encodedDuration/$encodedType/$encodedTimeAgo/" +
+                "$encodedUserTag/$encodedStartTime/$encodedEndTime/$encodedComment"
+        navController.navigate(route)
+    } catch (e: IllegalArgumentException) {
+        Log.e("NavigationError", "Failed to navigate: ${e.message}")
+    }
+}
+
+// Заголовок секции (дата)
+@Composable
+fun SectionHeader(date: String) {
+    Text(
+        text = date,
+        fontSize = 18.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(16.dp)
+    )
+}
+
+@Composable
+fun ActivityCard(activity: ActivityItem.Activity, navController: NavController) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+            .clickable {
+                navigateToActivityDetail(navController, activity)
+            },
+        elevation = CardDefaults.cardElevation(4.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "${activity.distance} ${activity.unit}",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(text = "${activity.duration} минут", fontSize = 16.sp)
+            Text(text = activity.type, fontSize = 16.sp, fontStyle = FontStyle.Italic)
+            Text(text = "Автор: ${activity.userTag}", fontSize = 14.sp, color = Color.Blue) // Тег пользователя
+            Text(text = activity.timeAgo, fontSize = 14.sp, color = Color.Gray)
+        }
+    }
+}
+
+
+
+
+sealed class ActivityItem {
+    data class Section(val date: String) : ActivityItem()
+    data class Activity(
+        val distance: String,
+        val unit: String,
+        val duration: String,
+        val type: String,
+        val timeAgo: String,
+        val userTag: String,         // Тег пользователя, например "@john_doe"
+        val startTime: String,       // Время начала, например "10:00"
+        val endTime: String,         // Время окончания, например "11:30"
+        val comment: String = ""     // Комментарий, по умолчанию пустой
+    ) : ActivityItem()
+}
+
+// Обновлённые заглушечные данные
+fun getMockActivitiesMy(): List<ActivityItem> {
+    return listOf(
+        ActivityItem.Section("Вчера"),
+        ActivityItem.Activity(
+            distance = "14.32",
+            unit = "км",
+            duration = "166",
+            type = "Серфинг",
+            timeAgo = "14 часов назад",
+            userTag = "@my_name",
+            startTime = "09:00",
+            endTime = "11:46",
+            comment = "Отличная погода!"
+        ),
+        ActivityItem.Section("Май 2022 года"),
+        ActivityItem.Activity(
+            distance = "1000",
+            unit = "м",
+            duration = "60",
+            type = "Велосипед",
+            timeAgo = "29.05.2022",
+            userTag = "@my_name",
+            startTime = "14:00",
+            endTime = "15:00",
+            comment = ""
+        )
+    )
+}
+
+fun getMockActivitiesUsers(): List<ActivityItem> {
+    return listOf(
+        ActivityItem.Section("Сегодня"),
+        ActivityItem.Activity(
+            distance = "5.5",
+            unit = "км",
+            duration = "45",
+            type = "Бег",
+            timeAgo = "2 часа назад",
+            userTag = "@runner_guy",
+            startTime = "07:00",
+            endTime = "07:45",
+            comment = "Утренний забег"
+        )
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ActivityDetailScreen(
+    navController: NavController,
+    distance: String,
+    unit: String,
+    duration: String,
+    type: String,
+    timeAgo: String,
+    userTag: String,
+    startTime: String,
+    endTime: String,
+    comment: String
+) {
+    var commentText by remember { mutableStateOf(comment) } // Поле для редактирования комментария
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(type) }, // Название вида активности
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { /* Логика удаления */ }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Удалить")
+                    }
+                    IconButton(onClick = { /* Логика поделиться */ }) {
+                        Icon(Icons.Default.Share, contentDescription = "Поделиться")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.Top,
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(text = "$distance $unit", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = "$duration минут", fontSize = 20.sp)
+            Text(text = "Автор: $userTag", fontSize = 18.sp, color = Color.Blue)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = "Начало: $startTime", fontSize = 16.sp)
+            Text(text = "Окончание: $endTime", fontSize = 16.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text = timeAgo, fontSize = 16.sp, color = Color.Gray)
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = commentText,
+                onValueChange = { commentText = it },
+                label = { Text("Комментарий") },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
