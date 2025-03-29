@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.*
 import androidx.navigation.*
 import androidx.navigation.compose.*
 import com.fefu.fitnesstracker.ui.theme.FitnessTrackerTheme
+import kotlinx.coroutines.*
 import java.net.*
 
 class MainActivity : ComponentActivity() {
@@ -74,6 +75,12 @@ class MainActivity : ComponentActivity() {
                             endTime = endTime,
                             comment = comment
                         )
+                    }
+                    composable("change_password") {
+                        ChangePasswordScreen(navController)
+                    }
+                    composable("start_activity") {
+                        StartActivityScreen(navController)
                     }
                 }
             }
@@ -395,21 +402,20 @@ fun ActivityListScreen(navController: NavController) {
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { /* Действие для кнопки "Start" */ },
+                onClick = { navController.navigate("start_activity") },
                 modifier = Modifier.padding(16.dp),
-                containerColor = Color(0xFF6200EE), // Фиолетовый цвет
-                contentColor = Color.White // Белый цвет значка
+                containerColor = Color(0xFF6200EE),
+                contentColor = Color.White
             ) {
                 Icon(
-                    imageVector = Icons.Filled.PlayArrow, // Значок "Start"
+                    imageVector = Icons.Filled.PlayArrow,
                     contentDescription = "Начать активность"
                 )
             }
         },
-        floatingActionButtonPosition = FabPosition.End // Позиция в правом нижнем углу
+        floatingActionButtonPosition = FabPosition.End
     ) { paddingValues ->
         Column(modifier = Modifier.padding(paddingValues)) {
-            // Верхние вкладки
             TabRow(selectedTabIndex = selectedTopTab) {
                 topTabs.forEachIndexed { index, title ->
                     Tab(
@@ -420,7 +426,6 @@ fun ActivityListScreen(navController: NavController) {
                 }
             }
 
-            // Контент в зависимости от нижней вкладки
             when (selectedBottomTab) {
                 0 -> { // Вкладка "Активность"
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -436,13 +441,255 @@ fun ActivityListScreen(navController: NavController) {
                     }
                 }
                 1 -> { // Вкладка "Профиль"
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Text(
-                            text = "Пока пусто",
-                            modifier = Modifier.align(Alignment.Center)
-                        )
+                    ProfileScreen(navController)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StartActivityScreen(navController: NavController) {
+    var selectedActivity by remember { mutableStateOf<String?>(null) } // Выбранная активность
+    var isActivityStarted by remember { mutableStateOf(false) } // Состояние начала активности
+    var isPaused by remember { mutableStateOf(false) } // Пауза таймера
+    var elapsedTime by remember { mutableLongStateOf(0L) } // Время в миллисекундах
+
+    // Таймер
+    LaunchedEffect(isActivityStarted, isPaused) {
+        if (isActivityStarted && !isPaused) {
+            while (true) {
+                delay(1000L)
+                elapsedTime += 1000L
+            }
+        }
+    }
+
+    val formattedTime = remember(elapsedTime) {
+        val seconds = (elapsedTime / 1000) % 60
+        val minutes = (elapsedTime / 1000 / 60) % 60
+        val hours = (elapsedTime / 1000 / 60 / 60)
+        String.format("%02d:%02d:%02d", hours, minutes, seconds)
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Начать активность") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigate("fourd") }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                     }
                 }
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Место для будущей Google Maps
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .background(Color.LightGray)
+            ) {
+                Text(
+                    text = "Место для Google Maps",
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+
+            // Нижняя вкладка
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                elevation = CardDefaults.cardElevation(4.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (!isActivityStarted) {
+                        Text(
+                            text = "Погнали? :)",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Горизонтальный список активностей
+                        val activities = listOf("Велосипед", "Бег", "Шаг")
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(activities) { activity ->
+                                Card(
+                                    modifier = Modifier
+                                        .width(100.dp)
+                                        .clickable { selectedActivity = activity },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (selectedActivity == activity) Color(0xFF6200EE) else Color.Gray
+                                    )
+                                ) {
+                                    Text(
+                                        text = activity,
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        modifier = Modifier
+                                            .padding(8.dp)
+                                            .align(Alignment.CenterHorizontally)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = { if (selectedActivity != null) isActivityStarted = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Blue),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp),
+                            enabled = selectedActivity != null
+                        ) {
+                            Text(text = "Начать", color = Color.White, fontSize = 16.sp)
+                        }
+                    } else {
+                        Text(
+                            text = selectedActivity ?: "Неизвестно",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "0 км",
+                                fontSize = 16.sp,
+                                color = Color.Black
+                            )
+                            Text(
+                                text = formattedTime,
+                                fontSize = 16.sp,
+                                color = Color.Black
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            FloatingActionButton(
+                                onClick = { isPaused = !isPaused },
+                                containerColor = Color(0xFF6200EE),
+                                contentColor = Color.White,
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                                    contentDescription = if (isPaused) "Продолжить" else "Пауза"
+                                )
+                            }
+                            FloatingActionButton(
+                                onClick = {
+                                    isActivityStarted = false
+                                    selectedActivity = null
+                                    elapsedTime = 0L
+                                    isPaused = false
+                                },
+                                containerColor = Color.Red,
+                                contentColor = Color.White,
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Stop,
+                                    contentDescription = "Завершить"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProfileScreen(navController: NavController) {
+    var login by remember { mutableStateOf("user123") } // Захардкодленный логин
+    var nickname by remember { mutableStateOf("John Doe") } // Захардкодленный никнейм
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Профиль") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigate("fourd") }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                    }
+                },
+                actions = {
+                    Text(
+                        text = "Сохранить",
+                        color = Color(0xFF6200EE), // Фиолетовый цвет
+                        fontSize = 16.sp,
+                        modifier = Modifier
+                            .padding(end = 16.dp)
+                            .clickable { /* Пока ничего не делает */ }
+                    )
+                }
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                OutlinedTextField(
+                    value = login,
+                    onValueChange = { login = it },
+                    label = { Text("Логин") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = nickname,
+                    onValueChange = { nickname = it },
+                    label = { Text("Имя или никнейм") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Изменить пароль",
+                    color = Color(0xFF6200EE), // Фиолетовый цвет
+                    fontSize = 16.sp,
+                    modifier = Modifier
+                        .clickable { navController.navigate("change_password") }
+                )
+            }
+            Button(
+                onClick = { /* Логика выхода */ },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                Text(text = "Выйти", color = Color.White, fontSize = 16.sp)
             }
         }
     }
@@ -492,6 +739,73 @@ fun NavGraph(navController: NavHostController) {
                 endTime = endTime,
                 comment = comment
             )
+        }
+        composable("change_password") {
+            ChangePasswordScreen(navController)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChangePasswordScreen(navController: NavController) {
+    var oldPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmNewPassword by remember { mutableStateOf("") }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Изменить пароль") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigate("fourd") }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.Top,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            OutlinedTextField(
+                value = oldPassword,
+                onValueChange = { oldPassword = it },
+                label = { Text("Старый пароль") },
+                modifier = Modifier.fillMaxWidth(),
+                visualTransformation = PasswordVisualTransformation() // Скрытие пароля
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = newPassword,
+                onValueChange = { newPassword = it },
+                label = { Text("Новый пароль") },
+                modifier = Modifier.fillMaxWidth(),
+                visualTransformation = PasswordVisualTransformation()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = confirmNewPassword,
+                onValueChange = { confirmNewPassword = it },
+                label = { Text("Повторите новый пароль") },
+                modifier = Modifier.fillMaxWidth(),
+                visualTransformation = PasswordVisualTransformation()
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = { /* Логика принятия пароля */ },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Blue),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                Text(text = "Принять", color = Color.White, fontSize = 16.sp)
+            }
         }
     }
 }
@@ -570,7 +884,6 @@ sealed class ActivityItem {
     ) : ActivityItem()
 }
 
-// Обновлённые заглушечные данные
 fun getMockActivitiesMy(): List<ActivityItem> {
     return listOf(
         ActivityItem.Section("Вчера"),
