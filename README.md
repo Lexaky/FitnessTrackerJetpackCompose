@@ -10,3 +10,4 @@
 ![изображение](https://github.com/user-attachments/assets/c33d12bf-43e0-4a6d-8152-9c47bae9e5ab)
 ![изображение](https://github.com/user-attachments/assets/88430587-77a9-4238-9f41-ad2adac16868)
 ![изображение](https://github.com/user-attachments/assets/464b0b76-5d3a-4da0-9a32-bfaf20e1fef4)
+![изображение](https://github.com/user-attachments/assets/566436ce-47e8-4df6-8878-e0479d53403f)
