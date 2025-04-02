@@ -83,7 +83,7 @@ data class ActivityEntity(
     val endTime: DateTime?,
     val coordinates: List<Coordinate>?
 ) {
-    // Метод для вычисления расстояния (примерная реализация, требует уточнения)
+    // Метод для вычисления расстояния
     fun calculateDistance(): Double {
         if (coordinates.isNullOrEmpty() || coordinates.size < 2) return 0.0
         var totalDistance = 0.0
@@ -367,7 +367,6 @@ fun RegistrationScreen(navController: NavController) {
 
         // Кнопка "Продолжить"
         Button(
-            // ИЗМЕНИТЬ, ВХОД ДОЛЖЕН АУТЕНТИФИЦИРОВАТЬСЯ
             onClick = { navController.navigate("fourd") },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE)),
             modifier = Modifier.fillMaxWidth()
@@ -955,7 +954,6 @@ fun ActivityCard(activity: ActivityItem.Activity, navController: NavController) 
             .fillMaxWidth()
             .padding(8.dp)
             .clickable {
-                // Используем временный ID -1 для моковых данных
                 val route = "activity_detail/-1"
                 Log.d("NavigationDebug", "Navigating to mock activity: $route")
                 navController.navigate(route)
@@ -987,10 +985,10 @@ sealed class ActivityItem {
         val duration: String,
         val type: String,
         val timeAgo: String,
-        val userTag: String,         // Тег пользователя, например "@john_doe"
-        val startTime: String,       // Время начала, например "10:00"
-        val endTime: String,         // Время окончания, например "11:30"
-        val comment: String = ""     // Комментарий, по умолчанию пустой
+        val userTag: String,
+        val startTime: String,
+        val endTime: String,
+        val comment: String = ""
     ) : ActivityItem()
 }
 
@@ -1055,7 +1053,7 @@ fun ActivityDetailScreen(navController: NavController, activityId: Int) {
         }
     }
 
-    if (activityId == -1) { // Моковые данные
+    if (activityId == -1) { // Хардкод
         val mockActivity = ActivityItem.Activity(
             distance = "5.5",
             unit = "км",
