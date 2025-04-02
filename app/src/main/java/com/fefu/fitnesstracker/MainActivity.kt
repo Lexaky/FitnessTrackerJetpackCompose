@@ -1,5 +1,6 @@
 package com.fefu.fitnesstracker
 import android.annotation.*
+import android.content.*
 import android.os.Bundle
 import android.util.*
 import androidx.activity.ComponentActivity
@@ -14,23 +15,138 @@ import androidx.compose.material.icons.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.*
 import androidx.compose.ui.text.font.*
 import androidx.compose.ui.text.input.*
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.*
+import androidx.lifecycle.*
 import androidx.navigation.*
 import androidx.navigation.compose.*
+import androidx.room.*
 import com.fefu.fitnesstracker.ui.theme.FitnessTrackerTheme
+import com.google.firebase.crashlytics.buildtools.reloc.com.google.common.reflect.TypeToken
+import com.google.gson.*
 import kotlinx.coroutines.*
+import org.joda.time.*
 import java.net.*
+
+import androidx.room.Database
+import androidx.room.Entity
+import androidx.room.RoomDatabase
+
+// Перечисление типов активности
+enum class ActivityType {
+    Велосипед, Бег, Шаг
+}
+
+// Класс для координат
+data class Coordinate(
+    val latitude: Double,
+    val longitude: Double
+)
+
+// Конвертер для списка координат
+class Converters {
+    @TypeConverter
+    fun fromCoordinates(coordinates: List<Coordinate>?): String? {
+        return Gson().toJson(coordinates)
+    }
+
+    @TypeConverter
+    fun toCoordinates(coordinatesString: String?): List<Coordinate>? {
+        return Gson().fromJson(coordinatesString, object : TypeToken<List<Coordinate>>() {}.type)
+    }
+
+    @TypeConverter
+    fun fromDateTime(dateTime: DateTime?): Long? {
+        return dateTime?.millis
+    }
+
+    @TypeConverter
+    fun toDateTime(millis: Long?): DateTime? {
+        return millis?.let { DateTime(it) }
+    }
+}
+
+// Сущность для таблицы
+@Entity(tableName = "activities")
+@TypeConverters(Converters::class)
+data class ActivityEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val activityType: ActivityType,
+    val startTime: DateTime,
+    val endTime: DateTime?,
+    val coordinates: List<Coordinate>?
+) {
+    // Метод для вычисления расстояния (примерная реализация, требует уточнения)
+    fun calculateDistance(): Double {
+        if (coordinates.isNullOrEmpty() || coordinates.size < 2) return 0.0
+        var totalDistance = 0.0
+        for (i in 0 until coordinates.size - 1) {
+            val lat1 = Math.toRadians(coordinates[i].latitude)
+            val lon1 = Math.toRadians(coordinates[i].longitude)
+            val lat2 = Math.toRadians(coordinates[i + 1].latitude)
+            val lon2 = Math.toRadians(coordinates[i + 1].longitude)
+
+            val dLat = lat2 - lat1
+            val dLon = lon2 - lon1
+            val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+            val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+            totalDistance += 6371 * c // Радиус Земли в км
+        }
+        return totalDistance
+    }
+}
+
+@Dao
+interface ActivityDao {
+    @Insert
+    suspend fun insert(activity: ActivityEntity): Long
+
+    @Update
+    suspend fun update(activity: ActivityEntity)
+
+    @Query("SELECT * FROM activities WHERE endTime IS NOT NULL")
+    fun getAllActivities(): LiveData<List<ActivityEntity>>
+
+    @Query("SELECT * FROM activities WHERE endTime IS NULL LIMIT 1")
+    suspend fun getActiveActivity(): ActivityEntity?
+
+    @Query("SELECT * FROM activities WHERE id = :id")
+    suspend fun getActivityById(id: Int): ActivityEntity?
+}
+
+@Database(entities = [ActivityEntity::class], version = 1)
+abstract class AppDatabase : RoomDatabase() {
+    abstract fun activityDao(): ActivityDao
+
+    companion object {
+        @Volatile
+        private var INSTANCE: AppDatabase? = null
+
+        fun getDatabase(context: Context): AppDatabase {
+            return INSTANCE ?: synchronized(this) {
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    AppDatabase::class.java,
+                    "fitness_tracker_db"
+                ).build()
+                INSTANCE = instance
+                instance
+            }
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContent {
             FitnessTrackerTheme {
                 val navController = rememberNavController()
@@ -40,48 +156,16 @@ class MainActivity : ComponentActivity() {
                     composable("third") { LoginScreen(navController) }
                     composable("fourd") { ActivityListScreen(navController) }
                     composable(
-                        route = "activity_detail/{distance}/{unit}/{duration}/{type}/{timeAgo}/{userTag}/{startTime}/{endTime}/{comment}",
+                        route = "activity_detail/{activityId}",
                         arguments = listOf(
-                            navArgument("distance") { type = NavType.StringType },
-                            navArgument("unit") { type = NavType.StringType },
-                            navArgument("duration") { type = NavType.StringType },
-                            navArgument("type") { type = NavType.StringType },
-                            navArgument("timeAgo") { type = NavType.StringType },
-                            navArgument("userTag") { type = NavType.StringType },
-                            navArgument("startTime") { type = NavType.StringType },
-                            navArgument("endTime") { type = NavType.StringType },
-                            navArgument("comment") { type = NavType.StringType }
+                            navArgument("activityId") { type = NavType.IntType }
                         )
                     ) { backStackEntry ->
-                        val distance = URLDecoder.decode(backStackEntry.arguments?.getString("distance") ?: "N/A", "UTF-8")
-                        val unit = URLDecoder.decode(backStackEntry.arguments?.getString("unit") ?: "N/A", "UTF-8")
-                        val duration = URLDecoder.decode(backStackEntry.arguments?.getString("duration") ?: "N/A", "UTF-8")
-                        val type = URLDecoder.decode(backStackEntry.arguments?.getString("type") ?: "Неизвестно", "UTF-8")
-                        val timeAgo = URLDecoder.decode(backStackEntry.arguments?.getString("timeAgo") ?: "N/A", "UTF-8")
-                        val userTag = URLDecoder.decode(backStackEntry.arguments?.getString("userTag") ?: "N/A", "UTF-8")
-                        val startTime = URLDecoder.decode(backStackEntry.arguments?.getString("startTime") ?: "N/A", "UTF-8")
-                        val endTime = URLDecoder.decode(backStackEntry.arguments?.getString("endTime") ?: "N/A", "UTF-8")
-                        val comment = URLDecoder.decode(backStackEntry.arguments?.getString("comment") ?: "", "UTF-8")
-
-                        ActivityDetailScreen(
-                            navController = navController,
-                            distance = distance,
-                            unit = unit,
-                            duration = duration,
-                            type = type,
-                            timeAgo = timeAgo,
-                            userTag = userTag,
-                            startTime = startTime,
-                            endTime = endTime,
-                            comment = comment
-                        )
+                        val activityId = backStackEntry.arguments?.getInt("activityId") ?: -1
+                        ActivityDetailScreen(navController = navController, activityId = activityId)
                     }
-                    composable("change_password") {
-                        ChangePasswordScreen(navController)
-                    }
-                    composable("start_activity") {
-                        StartActivityScreen(navController)
-                    }
+                    composable("change_password") { ChangePasswordScreen(navController) }
+                    composable("start_activity") { StartActivityScreen(navController) }
                 }
             }
         }
@@ -377,8 +461,13 @@ fun LoginScreen(navController: NavController) {
 
 @Composable
 fun ActivityListScreen(navController: NavController) {
-    var selectedTopTab by remember { mutableIntStateOf(0) } // Верхние вкладки
-    var selectedBottomTab by remember { mutableIntStateOf(0) } // Нижние вкладки
+    val context = LocalContext.current
+    val activityDao = remember { AppDatabase.getDatabase(context).activityDao() }
+    val activitiesLiveData = activityDao.getAllActivities()
+    val activities by activitiesLiveData.observeAsState(emptyList())
+
+    var selectedTopTab by remember { mutableIntStateOf(0) }
+    var selectedBottomTab by remember { mutableIntStateOf(0) }
     val topTabs = listOf("Моя", "Пользователей")
     val bottomTabs = listOf("Активность", "Профиль")
 
@@ -427,20 +516,23 @@ fun ActivityListScreen(navController: NavController) {
             }
 
             when (selectedBottomTab) {
-                0 -> { // Вкладка "Активность"
+                0 -> {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(
-                            if (selectedTopTab == 0) getMockActivitiesMy()
-                            else getMockActivitiesUsers()
-                        ) { item ->
-                            when (item) {
-                                is ActivityItem.Section -> SectionHeader(item.date)
-                                is ActivityItem.Activity -> ActivityCard(item, navController)
+                        if (selectedTopTab == 0) {
+                            items(activities) { activity ->
+                                ActivityCardFromDb(activity, navController)
+                            }
+                        } else {
+                            items(getMockActivitiesUsers()) { item ->
+                                when (item) {
+                                    is ActivityItem.Section -> SectionHeader(item.date)
+                                    is ActivityItem.Activity -> ActivityCard(item, navController)
+                                }
                             }
                         }
                     }
                 }
-                1 -> { // Вкладка "Профиль"
+                1 -> {
                     ProfileScreen(navController)
                 }
             }
@@ -448,15 +540,54 @@ fun ActivityListScreen(navController: NavController) {
     }
 }
 
+@Composable
+fun ActivityCardFromDb(activity: ActivityEntity, navController: NavController) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+            .clickable {
+                val route = "activity_detail/${activity.id}"
+                Log.d("NavigationDebug", "Attempting to navigate to: $route")
+                try {
+                    navController.navigate(route)
+                    Log.d("NavigationDebug", "Navigation successful")
+                } catch (e: Exception) {
+                    Log.e("NavigationDebug", "Navigation failed with exception: ${e.message}", e)
+                    e.printStackTrace()
+                }
+            },
+        elevation = CardDefaults.cardElevation(4.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = String.format("%.2f км", activity.calculateDistance()),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "${activity.endTime?.millis?.minus(activity.startTime.millis)?.div(60000) ?: 0} минут",
+                fontSize = 16.sp
+            )
+            Text(text = activity.activityType.name, fontSize = 16.sp, fontStyle = FontStyle.Italic)
+            Text(text = "@user", fontSize = 14.sp, color = Color.Blue)
+            Text(text = activity.startTime.toString("dd.MM.yyyy HH:mm"), fontSize = 14.sp, color = Color.Gray)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StartActivityScreen(navController: NavController) {
-    var selectedActivity by remember { mutableStateOf<String?>(null) } // Выбранная активность
-    var isActivityStarted by remember { mutableStateOf(false) } // Состояние начала активности
-    var isPaused by remember { mutableStateOf(false) } // Пауза таймера
-    var elapsedTime by remember { mutableLongStateOf(0L) } // Время в миллисекундах
+    val context = LocalContext.current
+    val activityDao = remember { AppDatabase.getDatabase(context).activityDao() }
+    var selectedActivity by remember { mutableStateOf<ActivityType?>(null) }
+    var isActivityStarted by remember { mutableStateOf(false) }
+    var isPaused by remember { mutableStateOf(false) }
+    var elapsedTime by remember { mutableLongStateOf(0L) }
+    var startTime by remember { mutableStateOf<DateTime?>(null) }
+    var currentActivityId by remember { mutableStateOf<Int?>(null) } // Для хранения ID активной записи
 
-    // Таймер
     LaunchedEffect(isActivityStarted, isPaused) {
         if (isActivityStarted && !isPaused) {
             while (true) {
@@ -491,7 +622,6 @@ fun StartActivityScreen(navController: NavController) {
                 .padding(paddingValues),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Место для будущей Google Maps
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -504,7 +634,6 @@ fun StartActivityScreen(navController: NavController) {
                 )
             }
 
-            // Нижняя вкладка
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -524,8 +653,7 @@ fun StartActivityScreen(navController: NavController) {
                         )
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Горизонтальный список активностей
-                        val activities = listOf("Велосипед", "Бег", "Шаг")
+                        val activities = listOf(ActivityType.Велосипед, ActivityType.Бег, ActivityType.Шаг)
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -540,7 +668,7 @@ fun StartActivityScreen(navController: NavController) {
                                     )
                                 ) {
                                     Text(
-                                        text = activity,
+                                        text = activity.name,
                                         color = Color.White,
                                         fontSize = 16.sp,
                                         modifier = Modifier
@@ -553,7 +681,25 @@ fun StartActivityScreen(navController: NavController) {
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Button(
-                            onClick = { if (selectedActivity != null) isActivityStarted = true },
+                            onClick = {
+                                if (selectedActivity != null) {
+                                    isActivityStarted = true
+                                    startTime = DateTime.now()
+                                    CoroutineScope(Dispatchers.IO).launch {
+                                        val entity = ActivityEntity(
+                                            activityType = selectedActivity!!,
+                                            startTime = startTime!!,
+                                            endTime = null,
+                                            coordinates = listOf(
+                                                Coordinate(55.7558, 37.6173),
+                                                Coordinate(55.7580, 37.6200)
+                                            )
+                                        )
+                                        val id = activityDao.insert(entity) // Room возвращает ID вставленной записи
+                                        currentActivityId = id.toInt()
+                                    }
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.Blue),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -564,7 +710,7 @@ fun StartActivityScreen(navController: NavController) {
                         }
                     } else {
                         Text(
-                            text = selectedActivity ?: "Неизвестно",
+                            text = selectedActivity?.name ?: "Неизвестно",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.Black
@@ -602,10 +748,22 @@ fun StartActivityScreen(navController: NavController) {
                             }
                             FloatingActionButton(
                                 onClick = {
+                                    CoroutineScope(Dispatchers.IO).launch {
+                                        val activeActivity = activityDao.getActiveActivity()
+                                        if (activeActivity != null) {
+                                            activityDao.update(
+                                                activeActivity.copy(
+                                                    endTime = DateTime.now()
+                                                )
+                                            )
+                                        }
+                                    }
                                     isActivityStarted = false
                                     selectedActivity = null
                                     elapsedTime = 0L
                                     isPaused = false
+                                    currentActivityId = null
+                                    navController.navigate("fourd")
                                 },
                                 containerColor = Color.Red,
                                 contentColor = Color.White,
@@ -691,57 +849,6 @@ fun ProfileScreen(navController: NavController) {
             ) {
                 Text(text = "Выйти", color = Color.White, fontSize = 16.sp)
             }
-        }
-    }
-}
-
-@Composable
-fun NavGraph(navController: NavHostController) {
-    NavHost(navController = navController, startDestination = "main") {
-        composable("main") { MainScreen(navController) }
-        composable("second") { RegistrationScreen(navController) }
-        composable("third") { LoginScreen(navController) }
-        composable("fourd") { ActivityListScreen(navController) }
-        composable("activity_list") { ActivityListScreen(navController) }
-        composable(
-            route = "activity_detail/{distance}/{unit}/{duration}/{type}/{timeAgo}/{userTag}/{startTime}/{endTime}/{comment}",
-            arguments = listOf(
-                navArgument("distance") { type = NavType.StringType },
-                navArgument("unit") { type = NavType.StringType },
-                navArgument("duration") { type = NavType.StringType },
-                navArgument("type") { type = NavType.StringType },
-                navArgument("timeAgo") { type = NavType.StringType },
-                navArgument("userTag") { type = NavType.StringType },
-                navArgument("startTime") { type = NavType.StringType },
-                navArgument("endTime") { type = NavType.StringType },
-                navArgument("comment") { type = NavType.StringType }
-            )
-        ) { backStackEntry ->
-            val distance = URLDecoder.decode(backStackEntry.arguments?.getString("distance") ?: "N/A", "UTF-8")
-            val unit = URLDecoder.decode(backStackEntry.arguments?.getString("unit") ?: "N/A", "UTF-8")
-            val duration = URLDecoder.decode(backStackEntry.arguments?.getString("duration") ?: "N/A", "UTF-8")
-            val type = URLDecoder.decode(backStackEntry.arguments?.getString("type") ?: "Неизвестно", "UTF-8")
-            val timeAgo = URLDecoder.decode(backStackEntry.arguments?.getString("timeAgo") ?: "N/A", "UTF-8")
-            val userTag = URLDecoder.decode(backStackEntry.arguments?.getString("userTag") ?: "N/A", "UTF-8")
-            val startTime = URLDecoder.decode(backStackEntry.arguments?.getString("startTime") ?: "N/A", "UTF-8")
-            val endTime = URLDecoder.decode(backStackEntry.arguments?.getString("endTime") ?: "N/A", "UTF-8")
-            val comment = URLDecoder.decode(backStackEntry.arguments?.getString("comment") ?: "", "UTF-8")
-
-            ActivityDetailScreen(
-                navController = navController,
-                distance = distance,
-                unit = unit,
-                duration = duration,
-                type = type,
-                timeAgo = timeAgo,
-                userTag = userTag,
-                startTime = startTime,
-                endTime = endTime,
-                comment = comment
-            )
-        }
-        composable("change_password") {
-            ChangePasswordScreen(navController)
         }
     }
 }
@@ -848,7 +955,10 @@ fun ActivityCard(activity: ActivityItem.Activity, navController: NavController) 
             .fillMaxWidth()
             .padding(8.dp)
             .clickable {
-                navigateToActivityDetail(navController, activity)
+                // Используем временный ID -1 для моковых данных
+                val route = "activity_detail/-1"
+                Log.d("NavigationDebug", "Navigating to mock activity: $route")
+                navController.navigate(route)
             },
         elevation = CardDefaults.cardElevation(4.dp)
     ) {
@@ -860,7 +970,7 @@ fun ActivityCard(activity: ActivityItem.Activity, navController: NavController) 
             )
             Text(text = "${activity.duration} минут", fontSize = 16.sp)
             Text(text = activity.type, fontSize = 16.sp, fontStyle = FontStyle.Italic)
-            Text(text = "Автор: ${activity.userTag}", fontSize = 14.sp, color = Color.Blue) // Тег пользователя
+            Text(text = "Автор: ${activity.userTag}", fontSize = 14.sp, color = Color.Blue)
             Text(text = activity.timeAgo, fontSize = 14.sp, color = Color.Gray)
         }
     }
@@ -932,64 +1042,133 @@ fun getMockActivitiesUsers(): List<ActivityItem> {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ActivityDetailScreen(
-    navController: NavController,
-    distance: String,
-    unit: String,
-    duration: String,
-    type: String,
-    timeAgo: String,
-    userTag: String,
-    startTime: String,
-    endTime: String,
-    comment: String
-) {
-    var commentText by remember { mutableStateOf(comment) } // Поле для редактирования комментария
+fun ActivityDetailScreen(navController: NavController, activityId: Int) {
+    val context = LocalContext.current
+    val activityDao = remember { AppDatabase.getDatabase(context).activityDao() }
+    var activity by remember { mutableStateOf<ActivityEntity?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(type) }, // Название вида активности
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { /* Логика удаления */ }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Удалить")
-                    }
-                    IconButton(onClick = { /* Логика поделиться */ }) {
-                        Icon(Icons.Default.Share, contentDescription = "Поделиться")
-                    }
-                }
-            )
+    LaunchedEffect(activityId) {
+        if (activityId != -1) { // Реальные данные из БД
+            activity = withContext(Dispatchers.IO) {
+                activityDao.getActivityById(activityId)
+            }
         }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.Top,
-            horizontalAlignment = Alignment.Start
-        ) {
-            Text(text = "$distance $unit", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "$duration минут", fontSize = 20.sp)
-            Text(text = "Автор: $userTag", fontSize = 18.sp, color = Color.Blue)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Начало: $startTime", fontSize = 16.sp)
-            Text(text = "Окончание: $endTime", fontSize = 16.sp)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(text = timeAgo, fontSize = 16.sp, color = Color.Gray)
-            Spacer(modifier = Modifier.height(16.dp))
-            OutlinedTextField(
-                value = commentText,
-                onValueChange = { commentText = it },
-                label = { Text("Комментарий") },
-                modifier = Modifier.fillMaxWidth()
-            )
+    }
+
+    if (activityId == -1) { // Моковые данные
+        val mockActivity = ActivityItem.Activity(
+            distance = "5.5",
+            unit = "км",
+            duration = "45",
+            type = "Бег",
+            timeAgo = "2 часа назад",
+            userTag = "@runner_guy",
+            startTime = "07:00",
+            endTime = "07:45",
+            comment = "Утренний забег"
+        )
+        var commentText by remember { mutableStateOf(mockActivity.comment) }
+
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(mockActivity.type) },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { /* Логика удаления */ }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Удалить")
+                        }
+                        IconButton(onClick = { /* Логика поделиться */ }) {
+                            Icon(Icons.Default.Share, contentDescription = "Поделиться")
+                        }
+                    }
+                )
+            }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.Top,
+                horizontalAlignment = Alignment.Start
+            ) {
+                Text(text = "${mockActivity.distance} ${mockActivity.unit}", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = "${mockActivity.duration} минут", fontSize = 20.sp)
+                Text(text = "Автор: ${mockActivity.userTag}", fontSize = 18.sp, color = Color.Blue)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = "Начало: ${mockActivity.startTime}", fontSize = 16.sp)
+                Text(text = "Окончание: ${mockActivity.endTime}", fontSize = 16.sp)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(text = mockActivity.timeAgo, fontSize = 16.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = commentText,
+                    onValueChange = { commentText = it },
+                    label = { Text("Комментарий") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    } else {
+        activity?.let { act ->
+            var commentText by remember { mutableStateOf("") }
+
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text(act.activityType.name) },
+                        navigationIcon = {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { /* Логика удаления */ }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Удалить")
+                            }
+                            IconButton(onClick = { /* Логика поделиться */ }) {
+                                Icon(Icons.Default.Share, contentDescription = "Поделиться")
+                            }
+                        }
+                    )
+                }
+            ) { paddingValues ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.Top,
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    Text(text = "${String.format("%.2f", act.calculateDistance())} км", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "${act.endTime?.millis?.minus(act.startTime.millis)?.div(60000) ?: 0} минут", fontSize = 20.sp)
+                    Text(text = "Автор: @user", fontSize = 18.sp, color = Color.Blue)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Начало: ${act.startTime.toString("HH:mm")}", fontSize = 16.sp)
+                    Text(text = "Окончание: ${act.endTime?.toString("HH:mm") ?: "N/A"}", fontSize = 16.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(text = act.startTime.toString("dd.MM.yyyy HH:mm"), fontSize = 16.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = commentText,
+                        onValueChange = { commentText = it },
+                        label = { Text("Комментарий") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        } ?: run {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
         }
     }
 }
